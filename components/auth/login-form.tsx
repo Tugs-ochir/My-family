@@ -24,7 +24,7 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "Нэвтрэх боломжгүй");
       router.push(redirectTo || "/");
       router.refresh();
