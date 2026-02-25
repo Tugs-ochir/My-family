@@ -42,59 +42,75 @@ export function RegisterForm() {
   }
 
   return (
-    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow">
-      <h1 className="text-2xl font-bold text-slate-900">Бүртгүүлэх</h1>
-      <p className="mt-1 text-sm text-slate-600">Өрхийн төсвийн самбар</p>
-      {error && (
-        <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>
-      )}
-      {success && (
-        <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{success}</p>
-      )}
-      <div className="mt-4 space-y-3">
-        <div>
-          <label className="text-sm text-slate-700">Имэйл</label>
-          <input
-            autoComplete="email"
-            className="mt-1 w-full rounded border border-slate-200 px-3 py-2 text-sm"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="family@example.com"
-          />
+    <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="rounded-3xl bg-white/90 backdrop-blur-sm p-8 shadow-2xl shadow-purple-200/50 ring-1 ring-slate-200/50">
+        <div className="mb-6 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-pink-600 shadow-lg shadow-purple-200">
+            <span className="text-3xl">📝</span>
+          </div>
+          <h1 className="text-3xl font-bold text-slate-900">Бүртгүүлэх</h1>
+          <p className="mt-2 text-sm text-slate-600">Өрхийн төсвийн самбар</p>
         </div>
-        <div>
-          <label className="text-sm text-slate-700">Нууц үг</label>
-          <input
-            autoComplete="new-password"
-            type="password"
-            className="mt-1 w-full rounded border border-slate-200 px-3 py-2 text-sm"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-          />
+        {error && (
+          <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 border border-rose-100">
+            <span className="mr-2">⚠️</span>
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 border border-emerald-100">
+            <span className="mr-2">✅</span>
+            {success}
+          </div>
+        )}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Имэйл</label>
+            <input
+              autoComplete="email"
+              className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-sm transition focus:border-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-100"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="family@example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Нууц үг</label>
+            <input
+              autoComplete="new-password"
+              type="password"
+              className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-sm transition focus:border-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-100"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Нууц үг давтах</label>
+            <input
+              autoComplete="new-password"
+              type="password"
+              className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-sm transition focus:border-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-100"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="••••••••"
+            />
+          </div>
+          <button
+            type="button"
+            className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-purple-200 transition hover:shadow-xl hover:shadow-purple-300 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+            onClick={handleRegister}
+            disabled={loading}
+          >
+            {loading ? 'Уншиж байна...' : 'Бүртгүүлэх →'}
+          </button>
+          <p className="text-center text-sm text-slate-600">
+            Бүртгэлтэй юу?{" "}
+            <a href="/login" className="font-medium text-purple-600 hover:text-purple-700 hover:underline transition">
+              Нэвтрэх
+            </a>
+          </p>
         </div>
-        <div>
-          <label className="text-sm text-slate-700">Нууц үг давтах</label>
-          <input
-            autoComplete="new-password"
-            type="password"
-            className="mt-1 w-full rounded border border-slate-200 px-3 py-2 text-sm"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            placeholder="••••••••"
-          />
-        </div>
-        <button
-          type="button"
-          className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-white shadow"
-          onClick={handleRegister}
-          disabled={loading}
-        >
-          {loading ? 'Уншиж байна...' : 'Бүртгүүлэх'}
-        </button>
-        <p className="text-xs text-slate-600">
-          Аль хэдийн бүртгэлтэй юу? <a href="/login" className="text-indigo-600 underline">Нэвтрэх</a>
-        </p>
       </div>
     </div>
   );

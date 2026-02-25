@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
+import { getCurrentUser } from '@/lib/auth';
 
 type Income = {
   husband: number;
@@ -22,15 +23,31 @@ type Goal = {
   saved?: number; // planned/saved amount for the month
 };
 
+type Loan = {
+  title: string;
+  amount: number;
+  due: string; // ISO date string
+  paid?: boolean;
+  recurring?: boolean;
+  monthlyPayment?: number; // сар бүрийн төлбөр
+};
+
 type FinanceDoc = {
+  userId: string;
   month: string; // format YYYY-MM
   income: Income;
   expenses: Expense[];
   goals: Goal[];
+  loans: Loan[];
   updatedAt: Date;
 };
 
 export async function GET(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Нэвтрэх шаардлагатай' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const month = searchParams.get('month');
 
@@ -40,21 +57,23 @@ export async function GET(request: Request) {
 
   const db = await getDb();
   const collection = db.collection<FinanceDoc>('finance_months');
-  await collection.createIndex({ month: 1 }, { unique: true });
+  await collection.createIndex({ userId: 1, month: 1 }, { unique: true });
 
-  const doc = await collection.findOne({ month });
+  const doc = await collection.findOne({ userId: user.userId, month });
   let fallback: FinanceDoc = {
+    userId: user.userId,
     month,
     income: { husband: 0, wife: 0 },
     expenses: [],
     goals: [],
+    loans: [],
     updatedAt: new Date(),
   };
 
   // If no data for this month, prefill from latest previous month where items are recurring
   if (!doc) {
     const prev = await collection
-      .find({ month: { $lt: month } })
+      .find({ userId: user.userId, month: { $lt: month } })
       .sort({ month: -1 })
       .limit(1)
       .toArray();
@@ -68,6 +87,9 @@ export async function GET(request: Request) {
         goals: (prev[0].goals ?? [])
           .filter((g) => g.recurring)
           .map((g) => ({ ...g, done: false })),
+        loans: (prev[0].loans ?? [])
+          .filter((l) => l.recurring)
+          .map((l) => ({ ...l, paid: false })),
       };
     }
   }
@@ -76,8 +98,13 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Нэвтрэх шаардлагатай' }, { status: 401 });
+  }
+
   const body = await request.json();
-  const { month, income, expenses, goals } = body ?? {};
+  const { month, income, expenses, goals, loans } = body ?? {};
 
   if (!month || typeof month !== 'string') {
     return NextResponse.json({ error: 'month is required (YYYY-MM)' }, { status: 400 });
@@ -112,19 +139,34 @@ export async function POST(request: Request) {
         .filter((g) => g.title)
     : [];
 
+  const safeLoans: Loan[] = Array.isArray(loans)
+    ? loans
+        .map((l: any) => ({
+          title: typeof l?.title === 'string' ? l.title.trim() : '',
+          amount: Number(l?.amount ?? 0) || 0,
+          due: typeof l?.due === 'string' ? l.due : '',
+          paid: Boolean(l?.paid),
+          recurring: Boolean(l?.recurring),
+          monthlyPayment: Number(l?.monthlyPayment ?? 0) || 0,
+        }))
+        .filter((l) => l.title)
+    : [];
+
   const doc: FinanceDoc = {
+    userId: user.userId,
     month,
     income: safeIncome,
     expenses: safeExpenses,
     goals: safeGoals,
+    loans: safeLoans,
     updatedAt: new Date(),
   };
 
   const db = await getDb();
   const collection = db.collection<FinanceDoc>('finance_months');
-  await collection.createIndex({ month: 1 }, { unique: true });
+  await collection.createIndex({ userId: 1, month: 1 }, { unique: true });
 
-  await collection.updateOne({ month }, { $set: doc }, { upsert: true });
+  await collection.updateOne({ userId: user.userId, month }, { $set: doc }, { upsert: true });
 
   return NextResponse.json(doc, { status: 201 });
 }
