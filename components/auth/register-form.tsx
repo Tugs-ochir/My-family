@@ -32,8 +32,9 @@ export function RegisterForm() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || 'Бүртгэж чадсангүй');
-      setSuccess('Амжилттай бүртгэгдлээ. Одоо нэвтэрнэ үү.');
-      setTimeout(() => router.push('/login'), 800);
+      setSuccess('Амжилттай бүртгэгдлээ. Нүүр хуудас руу шилжиж байна...');
+      router.push('/');
+      router.refresh();
     } catch (err: any) {
       setError(err.message || 'Алдаа гарлаа');
     } finally {

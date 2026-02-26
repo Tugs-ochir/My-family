@@ -1,8 +1,9 @@
 import { SignJWT, jwtVerify } from 'jose';
 
-// Use env secret when provided; fall back to a dev-safe default to avoid crash.
-// In production, set AUTH_SECRET in .env.local.
-const rawSecret = process.env.AUTH_SECRET || 'dev-secret-change-me';
+const rawSecret = process.env.JWT_SECRET;
+if (!rawSecret) {
+  throw new Error('JWT_SECRET environment variable is not set');
+}
 const secretKey = new TextEncoder().encode(rawSecret);
 
 export type SessionToken = {

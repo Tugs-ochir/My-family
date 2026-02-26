@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/mongodb';
+import { getDb, ensureIndexes } from '@/lib/mongodb';
 import { getCurrentUser } from '@/lib/auth';
 
+type IncomeMember = {
+  name: string;
+  salary: number;
+};
+
 type Income = {
-  husband: number;
-  wife: number;
+  members: IncomeMember[];
 };
 
 type Expense = {
@@ -32,6 +36,15 @@ type Loan = {
   monthlyPayment?: number; // сар бүрийн төлбөр
 };
 
+type Savings = {
+  name: string;
+  amount: number; // Нийт үлдэгдэл
+  monthlyDeposit: number; // Энэ сард нэмэх дүн
+  depositPaid: boolean; // Сарын хуримтлал хийгдсэн эсэх
+  interestRate: number; // Жилийн хүү %
+  interestDay: number; // Сарын хэдэнд хүү ордог (1-31)
+};
+
 type FinanceDoc = {
   userId: string;
   month: string; // format YYYY-MM
@@ -39,6 +52,7 @@ type FinanceDoc = {
   expenses: Expense[];
   goals: Goal[];
   loans: Loan[];
+  savings: Savings[];
   updatedAt: Date;
 };
 
@@ -56,60 +70,77 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'month is required (YYYY-MM)' }, { status: 400 });
     }
 
+    await ensureIndexes();
     const db = await getDb();
     const collection = db.collection<FinanceDoc>('finance_months');
-    try {
-      // Remove legacy unique index on month to allow per-user data.
-      await collection.dropIndex('month_1');
-    } catch (dropErr) {
-      // Ignore if the index does not exist or cannot be dropped.
-      console.error('Finance index drop error (month_1):', dropErr);
-    }
-    try {
-      await collection.createIndex(
-        { userId: 1, month: 1 },
-        {
-          unique: true,
-          name: 'userId_month_unique',
-          partialFilterExpression: { userId: { $exists: true, $type: 'string' } },
-        },
-      );
-    } catch (indexErr) {
-      console.error('Finance index create error:', indexErr);
-    }
 
     const doc = await collection.findOne({ userId: user.userId, month });
+
+    // Өмнөх сарын хадгаламжийг хүүтэй нь шилжүүлэх helper
+    const carryOverSavings = (prevSavings: Savings[]): Savings[] =>
+      prevSavings.map((s) => {
+        const annualRate = s.interestRate ?? 0;
+        const monthlyInterest = (s.amount * annualRate) / 100 / 12;
+        const deposit = s.depositPaid ? ((s as any).monthlyDeposit ?? 0) : 0;
+        return {
+          ...s,
+          amount: Math.round(s.amount + monthlyInterest + deposit),
+          depositPaid: false,
+        };
+      });
+
     let fallback: FinanceDoc = {
       userId: user.userId,
       month,
-      income: { husband: 0, wife: 0 },
+      income: { members: [] },
       expenses: [],
       goals: [],
       loans: [],
+      savings: [],
       updatedAt: new Date(),
     };
 
-    // If no data for this month, prefill from latest previous month where items are recurring
-    if (!doc) {
-      const prev = await collection
-        .find({ userId: user.userId, month: { $lt: month } })
+    // Тухайн сарын doc байхгүй, эсвэл хадгаламж хоосон байвал өмнөх сараас татах
+    const needsPrevData = !doc;
+    const needsPrevSavings = !needsPrevData && (doc!.savings ?? []).length === 0;
+
+    if (needsPrevData || needsPrevSavings) {
+      // Хадгаламжтай хамгийн сүүлийн өмнөх сарыг хайна
+      const prevWithSavings = await collection
+        .find({ userId: user.userId, month: { $lt: month }, 'savings.0': { $exists: true } })
         .sort({ month: -1 })
         .limit(1)
         .toArray();
-      if (prev[0]) {
-        fallback = {
-          ...fallback,
-          income: prev[0].income,
-          expenses: (prev[0].expenses ?? [])
-            .filter((e) => e.recurring)
-            .map((e) => ({ ...e, paid: false })),
-          goals: (prev[0].goals ?? [])
-            .filter((g) => g.recurring)
-            .map((g) => ({ ...g, done: false })),
-          loans: (prev[0].loans ?? [])
-            .filter((l) => l.recurring)
-            .map((l) => ({ ...l, paid: false })),
-        };
+
+      if (needsPrevData) {
+        // doc байхгүй бол бүх мэдээллийг өмнөх сараас авна
+        const prev = await collection
+          .find({ userId: user.userId, month: { $lt: month } })
+          .sort({ month: -1 })
+          .limit(1)
+          .toArray();
+        if (prev[0]) {
+          fallback = {
+            ...fallback,
+            income: prev[0].income,
+            expenses: (prev[0].expenses ?? [])
+              .filter((e) => e.recurring)
+              .map((e) => ({ ...e, paid: false })),
+            goals: (prev[0].goals ?? [])
+              .filter((g) => g.recurring)
+              .map((g) => ({ ...g, done: false })),
+            loans: (prev[0].loans ?? [])
+              .filter((l) => l.recurring)
+              .map((l) => ({ ...l, paid: false })),
+            savings: carryOverSavings(prevWithSavings[0]?.savings ?? prev[0].savings ?? []),
+          };
+        }
+      } else if (needsPrevSavings && prevWithSavings[0]) {
+        // doc байгаа ч хадгаламж хоосон — зөвхөн хадгаламжийг нэмнэ
+        return NextResponse.json({
+          ...doc,
+          savings: carryOverSavings(prevWithSavings[0].savings),
+        });
       }
     }
 
@@ -131,16 +162,29 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { month, income, expenses, goals, loans } = body ?? {};
+    const { month, income, expenses, goals, loans, savings } = body ?? {};
 
     if (!month || typeof month !== 'string') {
       return NextResponse.json({ error: 'month is required (YYYY-MM)' }, { status: 400 });
     }
 
-    const safeIncome: Income = {
-      husband: Number(income?.husband ?? 0) || 0,
-      wife: Number(income?.wife ?? 0) || 0,
-    };
+    // Хуучин { husband, wife } форматыг шинэ members болгон хөрвүүлнэ
+    let safeIncome: Income;
+    if (Array.isArray(income?.members)) {
+      safeIncome = {
+        members: income.members
+          .map((m: any) => ({
+            name: typeof m?.name === 'string' ? m.name.trim() : '',
+            salary: Number(m?.salary ?? 0) || 0,
+          }))
+          .filter((m: IncomeMember) => m.name),
+      };
+    } else {
+      const legacyMembers: IncomeMember[] = [];
+      if (Number(income?.husband) > 0) legacyMembers.push({ name: 'Нөхөр', salary: Number(income.husband) });
+      if (Number(income?.wife) > 0) legacyMembers.push({ name: 'Эхнэр', salary: Number(income.wife) });
+      safeIncome = { members: legacyMembers };
+    }
 
     const safeExpenses: Expense[] = Array.isArray(expenses)
       ? expenses
@@ -179,6 +223,19 @@ export async function POST(request: Request) {
           .filter((l) => l.title)
       : [];
 
+    const safeSavings: Savings[] = Array.isArray(savings)
+      ? savings
+          .map((s: any) => ({
+            name: typeof s?.name === 'string' ? s.name.trim() : '',
+            amount: Number(s?.amount ?? 0) || 0,
+            monthlyDeposit: Number(s?.monthlyDeposit ?? 0) || 0,
+            depositPaid: Boolean(s?.depositPaid),
+            interestRate: Number(s?.interestRate ?? 0) || 0,
+            interestDay: Number(s?.interestDay ?? 1) || 1,
+          }))
+          .filter((s) => s.name)
+      : [];
+
     const doc: FinanceDoc = {
       userId: user.userId,
       month,
@@ -186,30 +243,13 @@ export async function POST(request: Request) {
       expenses: safeExpenses,
       goals: safeGoals,
       loans: safeLoans,
+      savings: safeSavings,
       updatedAt: new Date(),
     };
 
+    await ensureIndexes();
     const db = await getDb();
     const collection = db.collection<FinanceDoc>('finance_months');
-    try {
-      // Remove legacy unique index on month to allow per-user data.
-      await collection.dropIndex('month_1');
-    } catch (dropErr) {
-      // Ignore if the index does not exist or cannot be dropped.
-      console.error('Finance index drop error (month_1):', dropErr);
-    }
-    try {
-      await collection.createIndex(
-        { userId: 1, month: 1 },
-        {
-          unique: true,
-          name: 'userId_month_unique',
-          partialFilterExpression: { userId: { $exists: true, $type: 'string' } },
-        },
-      );
-    } catch (indexErr) {
-      console.error('Finance index create error:', indexErr);
-    }
 
     await collection.updateOne({ userId: user.userId, month }, { $set: doc }, { upsert: true });
 

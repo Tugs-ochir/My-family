@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/mongodb';
+import { getDb, ensureIndexes } from '@/lib/mongodb';
 import { hashPassword } from '@/lib/auth';
+import { signSession } from '@/lib/token';
 
 export async function POST(request: Request) {
   try {
@@ -12,14 +13,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email болон нууц үг хэрэгтэй' }, { status: 400 });
     }
 
+    await ensureIndexes();
     const db = await getDb();
     const users = db.collection('users');
-    await users.createIndex({ email: 1 }, { unique: true });
 
     const hashed = hashPassword(password);
     const result = await users.insertOne({ email, password: hashed, createdAt: new Date() });
 
-    return NextResponse.json({ userId: result.insertedId, email }, { status: 201 });
+    const token = await signSession({ userId: String(result.insertedId), email });
+    const res = NextResponse.json({ ok: true }, { status: 201 });
+    res.cookies.set('session', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    return res;
   } catch (err: any) {
     // Surface duplicate email violations and unexpected server issues.
     if (err?.code === 11000) {
