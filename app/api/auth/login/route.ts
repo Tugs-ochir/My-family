@@ -32,8 +32,13 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 24 * 7,
     });
     return res;
-  } catch (err) {
-    console.error('Login API error:', err);
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    console.error('Login API error:', msg);
+    // Surface config errors clearly in logs without leaking details to clients
+    if (msg.includes('MONGODB_URI') || msg.includes('JWT_SECRET')) {
+      console.error('⚠️  Missing environment variable — set it in your hosting dashboard.');
+    }
     return NextResponse.json(
       { error: 'Серверийн алдаа. Дараа дахин оролдоно уу.' },
       { status: 500 }
